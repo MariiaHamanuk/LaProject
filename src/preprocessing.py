@@ -1,7 +1,6 @@
 from collections import Counter
 import numpy as np
-from scipy.sparse import lil_matrix, csr_matrix
-from tqdm import tqdm
+from scipy.sparse import coo_matrix, csr_matrix
 
 
 def load_corpus(path: str) -> list[str]:
@@ -35,24 +34,32 @@ def build_cooccurrence(
     Only tokens present in word2idx are counted.
     """
     V = len(word2idx)
-    cooc = lil_matrix((V, V), dtype=np.float64)
+    N = len(tokens)
 
-    for i in tqdm(range(len(tokens)), desc="Building co-occurrence matrix"):
-        word = tokens[i]
-        if word not in word2idx:
-            continue
-        w_idx = word2idx[word]
+    print("Mapping tokens to indices...")
+    token_ids = np.array(
+        [word2idx.get(t, -1) for t in tokens], dtype=np.int32
+    )
 
-        start = max(0, i - window)
-        end = min(len(tokens), i + window + 1)
+    all_rows = []
+    all_cols = []
 
-        for j in range(start, end):
-            if j == i:
-                continue
-            context = tokens[j]
-            if context not in word2idx:
-                continue
-            c_idx = word2idx[context]
-            cooc[w_idx, c_idx] += 1
+    print(f"Collecting co-occurrence pairs (window={window})...")
+    for offset in range(1, window + 1):
+        # offset to the right:  token[i] <-> token[i + offset]
+        w = token_ids[: N - offset]
+        c = token_ids[offset:]
+        mask = (w >= 0) & (c >= 0)
+        all_rows.append(w[mask])
+        all_cols.append(c[mask])
 
+        all_rows.append(c[mask])
+        all_cols.append(w[mask])
+
+    rows = np.concatenate(all_rows)
+    cols = np.concatenate(all_cols)
+    data = np.ones(len(rows), dtype=np.float64)
+
+    print("Building sparse matrix...")
+    cooc = coo_matrix((data, (rows, cols)), shape=(V, V))
     return cooc.tocsr()
